@@ -8,6 +8,8 @@ from typing import Dict, List, Tuple, Callable, Any, Optional
 from scipy.optimize import minimize, OptimizeResult
 import time
 from abc import ABC, abstractmethod
+from qiskit_algorithms.optimizers import SPSA, COBYLA,ADAM
+
 
 class QuantumOptimizer(ABC):
     """Base class for quantum parameter optimizers"""
@@ -353,26 +355,33 @@ class AdaptiveOptimizer(QuantumOptimizer):
         
         return result
 
+
 # Factory functions
-def create_optimizer(name: str, **kwargs) -> QuantumOptimizer:
-    """Factory function to create optimizers"""
-    
-    if name.upper() == 'SPSA':
-        return SPSAOptimizer(**kwargs)
-    elif name.upper() == 'ADAM':
-        return ADAMOptimizer(**kwargs)
-    elif name.upper() == 'ENSEMBLE':
-        # Create default ensemble
+def create_optimizer(name: str, **kwargs):
+    """Factory function to create optimizers compatible with QAOA"""
+    name_upper = name.upper()
+
+    if name_upper == 'SPSA':
+        # Use Qiskit SPSA
+        return SPSA(maxiter=kwargs.get('maxiter', 100))
+    elif name_upper == 'ADAM':
+        # Use Qiskit ADAM
+        return ADAM(maxiter=kwargs.get('maxiter', 100))
+    elif name_upper == 'COBYLA':
+        # Use Qiskit COBYLA
+        return COBYLA(maxiter=kwargs.get('maxiter', 100))
+    elif name_upper == 'ENSEMBLE':
+        # Leave your ensemble implementation as-is
         optimizers = [
             SPSAOptimizer(maxiter=kwargs.get('maxiter', 50)),
             ADAMOptimizer(maxiter=kwargs.get('maxiter', 50)),
             ScipyOptimizer('COBYLA', maxiter=kwargs.get('maxiter', 50))
         ]
         return EnsembleOptimizer(optimizers)
-    elif name.upper() == 'ADAPTIVE':
+    elif name_upper == 'ADAPTIVE':
         return AdaptiveOptimizer(**kwargs)
-    elif name.upper() in ['COBYLA', 'POWELL', 'L-BFGS-B', 'SLSQP', 'TNC']:
-        return ScipyOptimizer(name.upper(), **kwargs)
+    elif name_upper in ['POWELL', 'L-BFGS-B', 'SLSQP', 'TNC']:
+        return ScipyOptimizer(name_upper, **kwargs)
     else:
         raise ValueError(f"Unknown optimizer: {name}")
 

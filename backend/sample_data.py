@@ -241,6 +241,34 @@ def get_feasible_test_cases(max_qubits: int = 20) -> Dict[str, VRPTestCase]:
             feasible[name] = test_case
     return feasible
 
+    """
+    Decode binary string into routes. Assumes each location pair (i→j) is encoded.
+    """
+    routes = [[] for _ in range(num_locations)]  # Placeholder for vehicle routes
+    index = 0
+    for i in range(num_locations):
+        for j in range(num_locations):
+            if i != j:
+                if measurement[index] == '1':
+                    routes[i].append(j)
+                index += 1
+
+    # Post-process to extract actual routes
+    final_routes = []
+    visited = set()
+    for i in range(num_locations):
+        if routes[i]:
+            route = [depot_index]
+            current = i
+            while current not in visited and routes[current]:
+                route.append(current)
+                visited.add(current)
+                current = routes[current][0]
+            route.append(depot_index)
+            final_routes.append(route)
+
+    return final_routes
+
 # Performance benchmarking utilities
 class BenchmarkResult:
     """Container for algorithm benchmark results"""
