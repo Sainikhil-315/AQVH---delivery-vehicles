@@ -37,13 +37,13 @@ class Location(BaseModel):
 
 class VRPProblem(BaseModel):
     locations: List[Tuple[float, float]] = Field(..., description="List of (lat, lon) coordinates")
-    num_vehicles: int = Field(..., ge=1, le=5, description="Number of vehicles (1-5)")
+    num_vehicles: int = Field(..., ge=1, le=5, description="Number of vehicles (1-5)") #le = no of vehicles
     depot_index: int = Field(0, ge=0, description="Index of depot location")
 
 class SolverRequest(BaseModel):
     problem: VRPProblem
     algorithm: str = Field("SPSA", description="Algorithm name")
-    max_iterations: int = Field(100, ge=10, le=500, description="Maximum iterations")
+    max_iterations: int = Field(100, ge=10, le=500, description="Maximum iterations") # le = no of iterations
     additional_params: Dict[str, Any] = Field(default_factory=dict)
 
 class ComparisonRequest(BaseModel):
