@@ -5,6 +5,7 @@ Provides endpoints for quantum and classical VRP solving with comprehensive metr
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Tuple
@@ -12,6 +13,8 @@ import numpy as np
 import time
 import traceback
 from contextlib import asynccontextmanager
+import functools
+import hashlib
 
 # Local imports
 from sample_data import (
@@ -52,11 +55,17 @@ class ComparisonRequest(BaseModel):
     classical_algorithms: List[str] = Field(default=["nearest_neighbor", "genetic_algorithm"], description="Classical algorithms to test")
     max_iterations: int = Field(50, ge=10, le=200, description="Maximum iterations per algorithm")
 
-# Global variables for caching
+# Global variables for caching and performance monitoring
 app_state = {
     "test_cases": {},
     "algorithm_performance": {},
-    "startup_time": None
+    "startup_time": None,
+    "distance_matrix_cache": {},
+    "solution_cache": {},
+    "request_count": 0,
+    "total_response_time": 0.0,
+    "cache_hits": 0,
+    "cache_misses": 0
 }
 
 @asynccontextmanager
@@ -83,7 +92,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+# Add middleware for performance optimization
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # Compress responses > 1KB
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, specify actual origins

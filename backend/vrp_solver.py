@@ -346,6 +346,17 @@ class QAOAVRPSolver:
         self.seed = seed
         self.simulator = AerSimulator(seed_simulator=seed)
         
+        # Performance optimizations
+        self._hamiltonian_cache = {}
+        self._circuit_cache = {}
+        self._problem_hash_cache = {}
+        
+    def _get_problem_hash(self, distance_matrix: np.ndarray, num_vehicles: int, depot_index: int) -> str:
+        """Generate a hash for caching based on problem parameters"""
+        import hashlib
+        problem_str = f"{distance_matrix.tobytes()}-{num_vehicles}-{depot_index}"
+        return hashlib.md5(problem_str.encode()).hexdigest()
+    
     def solve(self, distance_matrix: np.ndarray, num_vehicles: int, 
               optimizer_name: str = 'SPSA', depot_index: int = 0,
               maxiter: int = 100) -> Dict[str, Any]:
@@ -375,17 +386,32 @@ class QAOAVRPSolver:
         try:
             print(f"Starting QAOA with {optimizer_name}, {self.p_layers} layers, {self.shots} shots")
             
-            # Create QUBO formulation
-            qubo = VRPQUBOFormulation(distance_matrix, num_vehicles, depot_index)
+            # Generate problem hash for caching
+            problem_hash = self._get_problem_hash(distance_matrix, num_vehicles, depot_index)
             
-            if qubo.num_qubits > 20:  # Limit for classical simulation
-                raise ValueError(f"Problem too large: {qubo.num_qubits} qubits needed (max 20)")
+            # Create QUBO formulation (cached)
+            if problem_hash in self._hamiltonian_cache:
+                print("Using cached Hamiltonian")
+                qubo = self._hamiltonian_cache[problem_hash]['qubo']
+                hamiltonian = self._hamiltonian_cache[problem_hash]['hamiltonian']
+            else:
+                print("Creating new QUBO formulation")
+                qubo = VRPQUBOFormulation(distance_matrix, num_vehicles, depot_index)
+                
+                if qubo.num_qubits > 20:  # Limit for classical simulation
+                    raise ValueError(f"Problem too large: {qubo.num_qubits} qubits needed (max 20)")
+                
+                # Create Hamiltonian
+                hamiltonian = qubo.create_hamiltonian()
+                
+                # Cache the results
+                self._hamiltonian_cache[problem_hash] = {
+                    'qubo': qubo,
+                    'hamiltonian': hamiltonian
+                }
+                print("Hamiltonian cached for future use")
             
             print(f"Problem size: {qubo.num_qubits} qubits")
-            
-            # Create Hamiltonian
-            hamiltonian = qubo.create_hamiltonian()
-            print("Hamiltonian created successfully")
             
             # Create quantum optimizer
             print(f"Creating optimizer {optimizer_name}...")
