@@ -28,23 +28,27 @@ class ClassicalSolver(ABC):
         pass
     
     def _calculate_route_cost(self, route: List[int], distance_matrix: np.ndarray) -> float:
-        """Calculate the total cost of a route"""
+        """Calculate the total cost of a route using vectorized operations"""
         if len(route) < 2:
             return 0.0
         
-        total_cost = 0.0
-        for i in range(len(route) - 1):
-            total_cost += distance_matrix[route[i]][route[i + 1]]
-        return total_cost
+        # Use numpy indexing for faster computation
+        route_array = np.array(route)
+        from_indices = route_array[:-1]
+        to_indices = route_array[1:]
+        
+        # Vectorized distance calculation
+        costs = distance_matrix[from_indices, to_indices]
+        return np.sum(costs)
     
     def _calculate_solution_cost(self, solution: List[List[int]], 
                                distance_matrix: np.ndarray) -> float:
-        """Calculate total cost of a complete solution"""
+        """Calculate total cost of a complete solution using vectorized operations"""
         return sum(self._calculate_route_cost(route, distance_matrix) for route in solution)
     
     def _is_valid_solution(self, solution: List[List[int]], num_locations: int, 
                           depot_index: int = 0) -> bool:
-        """Check if solution visits all customers exactly once"""
+        """Check if solution visits all customers exactly once using set operations"""
         visited_customers = set()
         
         for route in solution:
@@ -59,14 +63,14 @@ class ClassicalSolver(ABC):
         return visited_customers == all_customers
 
 class NearestNeighborSolver(ClassicalSolver):
-    """Simple greedy nearest neighbor heuristic"""
+    """Simple greedy nearest neighbor heuristic with optimizations"""
     
     def __init__(self):
         super().__init__("Nearest Neighbor")
     
     def solve(self, distance_matrix: np.ndarray, num_vehicles: int, 
               depot_index: int = 0) -> Dict[str, Any]:
-        """Solve VRP using nearest neighbor heuristic"""
+        """Solve VRP using nearest neighbor heuristic with vectorized operations"""
         
         start_time = time.time()
         num_locations = len(distance_matrix)
@@ -74,43 +78,67 @@ class NearestNeighborSolver(ClassicalSolver):
         customers.remove(depot_index)
         
         solution = []
-        remaining_customers = customers.copy()
+        remaining_customers = np.array(customers)
         
         for vehicle in range(num_vehicles):
-            if not remaining_customers:
+            if len(remaining_customers) == 0:
                 break
                 
             route = [depot_index]
             current_location = depot_index
             
-            # Build route using nearest neighbor
-            customers_for_this_route = len(remaining_customers) // (num_vehicles - vehicle)
+            # Calculate how many customers this vehicle should serve
+            customers_for_this_route = max(1, len(remaining_customers) // (num_vehicles - vehicle))
             
             for _ in range(min(customers_for_this_route, len(remaining_customers))):
-                if not remaining_customers:
+                if len(remaining_customers) == 0:
                     break
                 
-                # Find nearest unvisited customer
-                nearest_customer = min(remaining_customers,
-                                     key=lambda c: distance_matrix[current_location][c])
+                # Vectorized nearest neighbor search
+                distances_to_remaining = distance_matrix[current_location, remaining_customers]
+                nearest_idx = np.argmin(distances_to_remaining)
+                nearest_customer = remaining_customers[nearest_idx]
                 
                 route.append(nearest_customer)
                 current_location = nearest_customer
-                remaining_customers.remove(nearest_customer)
+                
+                # Remove the visited customer efficiently
+                remaining_customers = np.delete(remaining_customers, nearest_idx)
             
             # Return to depot
-            if len(route) > 1:
-                route.append(depot_index)
-                solution.append(route)
+            route.append(depot_index)
+            solution.append(route)
         
-        self.execution_time = time.time() - start_time
+        # Handle remaining customers if any
+        while len(remaining_customers) > 0:
+            route = [depot_index]
+            current_location = depot_index
+            
+            for _ in range(min(len(remaining_customers), 3)):  # Limit route length
+                if len(remaining_customers) == 0:
+                    break
+                
+                distances_to_remaining = distance_matrix[current_location, remaining_customers]
+                nearest_idx = np.argmin(distances_to_remaining)
+                nearest_customer = remaining_customers[nearest_idx]
+                
+                route.append(nearest_customer)
+                current_location = nearest_customer
+                remaining_customers = np.delete(remaining_customers, nearest_idx)
+            
+            route.append(depot_index)
+            solution.append(route)
+        
+        execution_time = time.time() - start_time
         
         return {
-            'solution': solution,
-            'total_cost': self._calculate_solution_cost(solution, distance_matrix),
-            'execution_time': self.execution_time,
-            'algorithm': self.name,
-            'is_valid': self._is_valid_solution(solution, num_locations, depot_index)
+            "solution": solution,
+            "total_cost": self._calculate_solution_cost(solution, distance_matrix),
+            "execution_time": execution_time,
+            "algorithm": self.name,
+            "iterations": 1,
+            "num_routes": len(solution),
+            "valid": self._is_valid_solution(solution, num_locations, depot_index)
         }
 
 class GeneticAlgorithmSolver(ClassicalSolver):

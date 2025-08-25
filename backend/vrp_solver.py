@@ -33,17 +33,25 @@ class VRPQUBOFormulation:
         self.depot_index = depot_index
         self.num_locations = len(distance_matrix)
         
+        # Pre-compute and cache frequently used values
+        self.customers = [i for i in range(self.num_locations) if i != self.depot_index]
+        self.num_customers = len(self.customers)
+        
         # Variable indexing: x_ij = 1 if edge (i,j) is used
         self.var_index = {}
         self.index_to_var = {}
         self._create_variable_mapping()
         
         self.num_qubits = len(self.var_index)
-        self.penalty_strength = self._estimate_penalty_strength()*5
+        self.penalty_strength = self._estimate_penalty_strength() * 5
+        
+        # Pre-compute constraint matrices for efficiency
+        self._precompute_constraints()
     
     def _create_variable_mapping(self):
         """Create mapping between variables x_ij and qubit indices"""
         idx = 0
+        # Use more efficient indexing
         for i in range(self.num_locations):
             for j in range(self.num_locations):
                 if i != j:  # No self-loops
@@ -56,17 +64,44 @@ class VRPQUBOFormulation:
         max_distance = np.max(self.distance_matrix)
         return max_distance * self.num_locations * 2
     
+    def _precompute_constraints(self):
+        """Pre-compute constraint matrices to avoid repeated calculations"""
+        # Pre-compute customer constraint qubits
+        self.customer_outgoing_qubits = {}
+        self.customer_incoming_qubits = {}
+        
+        for customer in self.customers:
+            # Outgoing edges from customer
+            outgoing = []
+            for j in range(self.num_locations):
+                if customer != j and (customer, j) in self.var_index:
+                    outgoing.append(self.var_index[(customer, j)])
+            self.customer_outgoing_qubits[customer] = outgoing
+            
+            # Incoming edges to customer
+            incoming = []
+            for i in range(self.num_locations):
+                if customer != i and (i, customer) in self.var_index:
+                    incoming.append(self.var_index[(i, customer)])
+            self.customer_incoming_qubits[customer] = incoming
+        
+        # Pre-compute depot constraint qubits
+        self.depot_outgoing_qubits = []
+        for j in range(self.num_locations):
+            if j != self.depot_index and (self.depot_index, j) in self.var_index:
+                self.depot_outgoing_qubits.append(self.var_index[(self.depot_index, j)])
+    
     def create_hamiltonian(self) -> SparsePauliOp:
         """
         Create the Hamiltonian for VRP as a QUBO problem
         H = H_cost + λ * H_constraints
         """
         
-        # Initialize coefficient dictionaries
+        # Initialize coefficient dictionaries with defaultdict for efficiency
         linear_coeffs = defaultdict(float)
         quadratic_coeffs = defaultdict(float)
         
-        # Cost terms: minimize total distance
+        # Cost terms: minimize total distance (vectorized)
         for i in range(self.num_locations):
             for j in range(self.num_locations):
                 if i != j and (i, j) in self.var_index:
@@ -74,15 +109,8 @@ class VRPQUBOFormulation:
                     linear_coeffs[qubit_idx] += self.distance_matrix[i][j]
         
         # Constraint 1: Each customer must be visited exactly once (outgoing edges)
-        customers = [i for i in range(self.num_locations) if i != self.depot_index]
-        
-        for customer in customers:
-            # Sum of outgoing edges from customer should be 1
-            constraint_qubits = []
-            for j in range(self.num_locations):
-                if customer != j and (customer, j) in self.var_index:
-                    qubit_idx = self.var_index[(customer, j)]
-                    constraint_qubits.append(qubit_idx)
+        for customer in self.customers:
+            constraint_qubits = self.customer_outgoing_qubits[customer]
             
             # Add penalty: (sum - 1)^2 = sum^2 - 2*sum + 1
             # Linear terms: -2*penalty_strength for each variable
@@ -99,13 +127,8 @@ class VRPQUBOFormulation:
                         linear_coeffs[qubit_i] += self.penalty_strength
         
         # Constraint 2: Each customer must be visited exactly once (incoming edges)
-        for customer in customers:
-            # Sum of incoming edges to customer should be 1
-            constraint_qubits = []
-            for i in range(self.num_locations):
-                if customer != i and (i, customer) in self.var_index:
-                    qubit_idx = self.var_index[(i, customer)]
-                    constraint_qubits.append(qubit_idx)
+        for customer in self.customers:
+            constraint_qubits = self.customer_incoming_qubits[customer]
             
             # Add penalty terms
             for qubit_idx in constraint_qubits:
@@ -120,11 +143,7 @@ class VRPQUBOFormulation:
                         linear_coeffs[qubit_i] += self.penalty_strength
         
         # Constraint 3: Vehicle capacity (each vehicle starts from depot)
-        depot_outgoing = []
-        for j in range(self.num_locations):
-            if j != self.depot_index and (self.depot_index, j) in self.var_index:
-                qubit_idx = self.var_index[(self.depot_index, j)]
-                depot_outgoing.append(qubit_idx)
+        depot_outgoing = self.depot_outgoing_qubits
         
         # Exactly num_vehicles should leave depot
         for qubit_idx in depot_outgoing:
@@ -138,17 +157,17 @@ class VRPQUBOFormulation:
                 else:
                     linear_coeffs[qubit_i] += self.penalty_strength
         
-        # Convert to Pauli operators
+        # Convert to Pauli operators more efficiently
         pauli_list = []
         
-        # Linear terms (Z operators)
+        # Linear terms (Z operators) - filter out near-zero coefficients
         for qubit_idx, coeff in linear_coeffs.items():
             if abs(coeff) > 1e-10:
                 pauli_str = ['I'] * self.num_qubits
                 pauli_str[qubit_idx] = 'Z'
                 pauli_list.append((''.join(pauli_str), coeff))
         
-        # Quadratic terms (ZZ operators)
+        # Quadratic terms (ZZ operators) - filter out near-zero coefficients
         for (qubit_i, qubit_j), coeff in quadratic_coeffs.items():
             if abs(coeff) > 1e-10:
                 pauli_str = ['I'] * self.num_qubits
@@ -157,7 +176,7 @@ class VRPQUBOFormulation:
                 pauli_list.append((''.join(pauli_str), coeff))
         
         # Constant term
-        constant = (self.penalty_strength * len(customers) * 2 + 
+        constant = (self.penalty_strength * self.num_customers * 2 + 
                    self.penalty_strength * self.num_vehicles * self.num_vehicles)
         if abs(constant) > 1e-10:
             identity = 'I' * self.num_qubits

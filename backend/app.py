@@ -11,7 +11,10 @@ from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 import time
 import traceback
+import asyncio
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 # Local imports
 from sample_data import (
@@ -52,12 +55,74 @@ class ComparisonRequest(BaseModel):
     classical_algorithms: List[str] = Field(default=["nearest_neighbor", "genetic_algorithm"], description="Classical algorithms to test")
     max_iterations: int = Field(50, ge=10, le=200, description="Maximum iterations per algorithm")
 
-# Global variables for caching
+# Global variables for caching and performance
 app_state = {
     "test_cases": {},
     "algorithm_performance": {},
-    "startup_time": None
+    "startup_time": None,
+    "thread_pool": None,
+    "cache_lock": threading.Lock()
 }
+
+# Thread pool for CPU-intensive operations
+def get_thread_pool():
+    if app_state["thread_pool"] is None:
+        app_state["thread_pool"] = ThreadPoolExecutor(max_workers=4)
+    return app_state["thread_pool"]
+
+# Enhanced caching with thread safety
+_distance_cache = {}
+_cache_hits = 0
+_cache_misses = 0
+
+def get_cached_distance_matrix(locations: List[Tuple[float, float]]) -> np.ndarray:
+    """Get cached distance matrix or create new one with thread safety"""
+    global _cache_hits, _cache_misses
+    
+    # Create hashable key from locations
+    locations_tuple = tuple(map(tuple, locations))
+    
+    with app_state["cache_lock"]:
+        if locations_tuple in _distance_cache:
+            _cache_hits += 1
+            return _distance_cache[locations_tuple]
+        
+        _cache_misses += 1
+        
+        # Create new matrix and cache it
+        matrix = create_distance_matrix(locations)
+        _distance_cache[locations_tuple] = matrix
+        
+        # Limit cache size to prevent memory issues
+        if len(_distance_cache) > 100:
+            # Remove oldest entries
+            oldest_key = next(iter(_distance_cache))
+            del _distance_cache[oldest_key]
+    
+    return matrix
+
+def create_distance_matrix(locations: List[Tuple[float, float]]) -> np.ndarray:
+    """Create distance matrix from location coordinates using vectorized operations"""
+    locations_array = np.array(locations)
+    
+    # Vectorized distance calculation using broadcasting
+    # This is much faster than nested loops
+    diff = locations_array[:, np.newaxis, :] - locations_array[np.newaxis, :, :]
+    distances = np.sqrt(np.sum(diff**2, axis=2))
+    
+    # Set diagonal to 0 (no self-loops)
+    np.fill_diagonal(distances, 0)
+    
+    return distances
+
+def format_response(result: Dict[str, Any], success: bool = True) -> Dict[str, Any]:
+    """Standardize API response format"""
+    return {
+        "success": success,
+        "timestamp": time.time(),
+        "data": result if success else None,
+        "error": None if success else result.get("error", "Unknown error")
+    }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -73,6 +138,8 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
+    if app_state["thread_pool"]:
+        app_state["thread_pool"].shutdown(wait=True)
     print("Shutting down VRP solver backend")
 
 # Create FastAPI app
@@ -91,32 +158,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Utility functions
-def create_distance_matrix(locations: List[Tuple[float, float]]) -> np.ndarray:
-    """Create distance matrix from location coordinates"""
-    n = len(locations)
-    matrix = np.zeros((n, n))
-    
-    for i in range(n):
-        for j in range(n):
-            if i != j:
-                lat1, lon1 = locations[i]
-                lat2, lon2 = locations[j]
-                # Euclidean distance (can be replaced with haversine for real coordinates)
-                distance = np.sqrt((lat2 - lat1)**2 + (lon2 - lon1)**2)
-                matrix[i][j] = distance
-    
-    return matrix
-
-def format_response(result: Dict[str, Any], success: bool = True) -> Dict[str, Any]:
-    """Standardize API response format"""
-    return {
-        "success": success,
-        "timestamp": time.time(),
-        "data": result if success else None,
-        "error": None if success else result.get("error", "Unknown error")
-    }
 
 # API Endpoints
 
@@ -153,6 +194,36 @@ async def health_check():
             "test_cases_loaded": len(app_state["test_cases"]),
             "sample_problem_qubits": qubits_needed,
             "quantum_feasible": is_quantum_feasible(test_case.num_locations)
+        })
+    except Exception as e:
+        return format_response({"error": str(e)}, success=False)
+
+@app.get("/performance")
+async def performance_metrics():
+    """Get performance metrics and cache statistics"""
+    try:
+        uptime = time.time() - app_state["startup_time"] if app_state["startup_time"] else 0
+        
+        # Calculate cache hit rate
+        total_requests = _cache_hits + _cache_misses
+        cache_hit_rate = (_cache_hits / total_requests * 100) if total_requests > 0 else 0
+        
+        return format_response({
+            "uptime_seconds": uptime,
+            "cache_performance": {
+                "hits": _cache_hits,
+                "misses": _cache_misses,
+                "hit_rate_percent": round(cache_hit_rate, 2),
+                "cache_size": len(_distance_cache)
+            },
+            "memory_usage": {
+                "test_cases_loaded": len(app_state["test_cases"]),
+                "algorithm_performance_cache": len(app_state["algorithm_performance"])
+            },
+            "thread_pool": {
+                "max_workers": 4,
+                "active": app_state["thread_pool"] is not None
+            }
         })
     except Exception as e:
         return format_response({"error": str(e)}, success=False)
@@ -239,7 +310,7 @@ async def solve_quantum_endpoint(request: SolverRequest):
     """Solve VRP using quantum QAOA algorithm"""
     try:
         # Create distance matrix
-        distance_matrix = create_distance_matrix(request.problem.locations)
+        distance_matrix = get_cached_distance_matrix(request.problem.locations)
         
         # Check quantum feasibility
         num_locations = len(request.problem.locations)
@@ -300,7 +371,7 @@ async def solve_classical_endpoint(request: SolverRequest):
     """Solve VRP using classical algorithms"""
     try:
         # Create distance matrix
-        distance_matrix = create_distance_matrix(request.problem.locations)
+        distance_matrix = get_cached_distance_matrix(request.problem.locations)
         
         # Extract parameters
         algorithm = request.algorithm
@@ -365,7 +436,7 @@ async def compare_all_algorithms(request: ComparisonRequest):
     """Compare quantum and classical algorithms on the same problem"""
     try:
         # Create distance matrix
-        distance_matrix = create_distance_matrix(request.problem.locations)
+        distance_matrix = get_cached_distance_matrix(request.problem.locations)
         
         # Check quantum feasibility
         num_locations = len(request.problem.locations)
@@ -424,7 +495,7 @@ async def compare_quantum_optimizers(
     """Compare different quantum optimizers on the same problem"""
     try:
         # Create distance matrix
-        distance_matrix = create_distance_matrix(problem.locations)
+        distance_matrix = get_cached_distance_matrix(problem.locations)
         
         # Check quantum feasibility
         num_locations = len(problem.locations)
@@ -499,7 +570,7 @@ async def validate_solution_endpoint(
     """Validate a VRP solution"""
     try:
         # Create a test case object
-        distance_matrix = create_distance_matrix(locations)
+        distance_matrix = get_cached_distance_matrix(locations)
         
         test_case = type('TestCase', (), {
             'distance_matrix': distance_matrix,

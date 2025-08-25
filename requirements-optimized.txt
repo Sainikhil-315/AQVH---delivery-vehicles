@@ -1,0 +1,58 @@
+# 🚀 Optimized Requirements for Quantum Fleet VRP Solver
+# Core dependencies with performance-optimized versions
+
+# Quantum Computing (Core)
+qiskit==0.45.0
+qiskit-aer==0.13.3
+qiskit-algorithms==0.2.1
+qiskit-optimization==0.6.0
+
+# FastAPI and Web Framework (High Performance)
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Scientific Computing (Vectorized Operations)
+numpy>=1.24.3,<2.0
+scipy==1.11.4
+matplotlib==3.8.0
+networkx==3.2.1
+
+# Classical Optimization
+scikit-learn==1.3.2
+deap==1.4.1
+
+# Utilities
+python-dotenv==1.0.0
+pydantic==2.5.0
+typing-extensions==4.8.0
+
+# Performance Monitoring (Optional)
+psutil>=5.9.0  # System resource monitoring
+memory-profiler>=0.61.0  # Memory usage profiling
+
+# Development and Testing (Optional)
+pytest==7.4.3
+black==23.10.1
+flake8==6.1.0
+
+# Performance Profiling (Optional)
+cProfile  # Built-in Python profiler
+line_profiler>=4.1.0  # Line-by-line profiling
+
+# Alternative Fast Backends (Optional)
+# Uncomment for even better performance
+# orjson>=3.9.0  # Faster JSON serialization
+# ujson>=5.8.0   # Alternative fast JSON library
+# msgpack>=1.0.5  # Binary serialization format
+
+# Caching Backends (Optional)
+# Uncomment for production caching
+# redis>=4.6.0   # Distributed caching
+# aioredis>=2.0.0  # Async Redis client
+
+# Notes:
+# - numpy<2.0 ensures compatibility with current optimizations
+# - psutil and memory-profiler help monitor performance
+# - orjson/ujson can provide 2-3x faster JSON serialization
+# - Redis integration can provide distributed caching for multiple instances
