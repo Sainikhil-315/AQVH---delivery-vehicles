@@ -37,7 +37,7 @@ class Location(BaseModel):
 
 class VRPProblem(BaseModel):
     locations: List[Tuple[float, float]] = Field(..., description="List of (lat, lon) coordinates")
-    num_vehicles: int = Field(..., ge=1, le=5, description="Number of vehicles (1-5)") #le = no of vehicles
+    num_vehicles: int = Field(..., ge=1, le=5, description="Number of vehicles (1-5)") #le = no of vehicles 
     depot_index: int = Field(0, ge=0, description="Index of depot location")
 
 class SolverRequest(BaseModel):
@@ -624,7 +624,7 @@ async def general_exception_handler(request, exc):
     )
 
 if __name__ == "__main__":
-    import uvicorn
+    import uvicorn # for running application
     
     print("Starting Quantum Fleet VRP Solver Backend")
     print("Available endpoints:")
