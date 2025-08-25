@@ -5,6 +5,7 @@ Provides endpoints for quantum and classical VRP solving with comprehensive metr
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Tuple
@@ -12,23 +13,16 @@ import numpy as np
 import time
 import traceback
 from contextlib import asynccontextmanager
+from functools import lru_cache
+import importlib
+from starlette.concurrency import run_in_threadpool
 
 # Local imports
-from sample_data import (
-    get_test_case, get_all_test_cases, create_random_test_case,
-    validate_solution, VRPTestCase, get_feasible_test_cases,
-    estimate_qubits_needed, is_quantum_feasible
-)
-from vrp_solver import (
-    solve_vrp_quantum, compare_quantum_classical, QAOAVRPSolver
-)
-from classical_solver import (
-    solve_vrp_classical, compare_classical_algorithms,
-    get_available_classical_algorithms
-)
-from optimizers import (
-    get_available_optimizers, compare_optimizers, create_optimizer
-)
+def _sd():
+    """Lazy loader for sample_data module to reduce startup work."""
+    return importlib.import_module('sample_data')
+# Note: Heavy modules (Qiskit and related) are imported lazily inside endpoints
+# to reduce startup time and memory footprint.
 
 # Pydantic models for API requests/responses
 class Location(BaseModel):
@@ -63,11 +57,12 @@ app_state = {
 async def lifespan(app: FastAPI):
     # Startup
     app_state["startup_time"] = time.time()
-    app_state["test_cases"] = get_all_test_cases()
+    # Lazy import sample data and load test cases
+    app_state["test_cases"] = _sd().get_all_test_cases()
     print(f"Loaded {len(app_state['test_cases'])} test cases")
     
     # Print quantum feasibility info
-    feasible_cases = get_feasible_test_cases()
+    feasible_cases = _sd().get_feasible_test_cases()
     print(f"Quantum feasible test cases: {len(feasible_cases)}")
     
     yield
@@ -75,15 +70,20 @@ async def lifespan(app: FastAPI):
     # Shutdown
     print("Shutting down VRP solver backend")
 
-# Create FastAPI app
-app = FastAPI(
-    title="Quantum Fleet VRP Solver",
-    description="Advanced VRP solver using QAOA quantum computing with classical algorithm comparison",
-    version="1.0.0",
-    lifespan=lifespan
-)
+# Create FastAPI app (prefer fast JSON if available)
+default_kwargs = {
+    "title": "Quantum Fleet VRP Solver",
+    "description": "Advanced VRP solver using QAOA quantum computing with classical algorithm comparison",
+    "version": "1.0.0",
+    "lifespan": lifespan
+}
+try:
+    from fastapi.responses import ORJSONResponse  # type: ignore
+    app = FastAPI(default_response_class=ORJSONResponse, **default_kwargs)
+except Exception:
+    app = FastAPI(**default_kwargs)
 
-# Add CORS middleware
+# Add CORS and GZip middleware (compression improves payload transfer time)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, specify actual origins
@@ -91,23 +91,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # Utility functions
-def create_distance_matrix(locations: List[Tuple[float, float]]) -> np.ndarray:
-    """Create distance matrix from location coordinates"""
-    n = len(locations)
-    matrix = np.zeros((n, n))
-    
-    for i in range(n):
-        for j in range(n):
-            if i != j:
-                lat1, lon1 = locations[i]
-                lat2, lon2 = locations[j]
-                # Euclidean distance (can be replaced with haversine for real coordinates)
-                distance = np.sqrt((lat2 - lat1)**2 + (lon2 - lon1)**2)
-                matrix[i][j] = distance
-    
+def _locations_to_key(locations: List[Tuple[float, float]]) -> Tuple[Tuple[float, float], ...]:
+    """Convert list of (lat, lon) to a hashable tuple key with stable float types."""
+    return tuple((float(lat), float(lon)) for lat, lon in locations)
+
+
+@lru_cache(maxsize=256)
+def _distance_matrix_cached(locations_key: Tuple[Tuple[float, float], ...]) -> np.ndarray:
+    """Vectorized and cached Euclidean distance matrix computation."""
+    if not locations_key:
+        return np.zeros((0, 0))
+    coords = np.asarray(locations_key, dtype=np.float64)
+    diffs = coords[:, None, :] - coords[None, :, :]
+    matrix = np.sqrt((diffs * diffs).sum(axis=2))
+    # Ensure exact zeros on diagonal (avoid tiny numerical noise)
+    np.fill_diagonal(matrix, 0.0)
     return matrix
+
+
+def create_distance_matrix(locations: List[Tuple[float, float]]) -> np.ndarray:
+    """Create distance matrix from location coordinates with caching and vectorization."""
+    return _distance_matrix_cached(_locations_to_key(locations))
 
 def format_response(result: Dict[str, Any], success: bool = True) -> Dict[str, Any]:
     """Standardize API response format"""
@@ -144,38 +151,40 @@ async def health_check():
     """Health check endpoint"""
     try:
         # Test basic functionality
-        test_case = get_test_case("small_4_2")
-        qubits_needed = estimate_qubits_needed(test_case.num_locations, test_case.num_vehicles)
+        test_case = _sd().get_test_case("small_4_2")
+        qubits_needed = _sd().estimate_qubits_needed(test_case.num_locations, test_case.num_vehicles)
         
         return format_response({
             "status": "healthy",
             "quantum_simulator": "available",
             "test_cases_loaded": len(app_state["test_cases"]),
             "sample_problem_qubits": qubits_needed,
-            "quantum_feasible": is_quantum_feasible(test_case.num_locations)
+            "quantum_feasible": _sd().is_quantum_feasible(test_case.num_locations)
         })
     except Exception as e:
         return format_response({"error": str(e)}, success=False)
 
 @app.get("/test-cases")
-async def get_test_cases_endpoint():
+async def get_test_cases_endpoint(include_matrix: bool = Query(default=False, description="Include full distance matrices in response")):
     """Get all available test cases"""
     try:
         test_cases_info = {}
         
         for name, test_case in app_state["test_cases"].items():
-            qubits_needed = estimate_qubits_needed(test_case.num_locations, test_case.num_vehicles)
+            qubits_needed = _sd().estimate_qubits_needed(test_case.num_locations, test_case.num_vehicles)
             
-            test_cases_info[name] = {
+            base_info = {
                 "name": test_case.name,
                 "locations": test_case.locations,
                 "num_vehicles": test_case.num_vehicles,
                 "num_locations": test_case.num_locations,
                 "depot_index": test_case.depot_index,
                 "qubits_needed": qubits_needed,
-                "quantum_feasible": is_quantum_feasible(test_case.num_locations),
-                "distance_matrix": test_case.distance_matrix.tolist()
+                "quantum_feasible": _sd().is_quantum_feasible(test_case.num_locations)
             }
+            if include_matrix:
+                base_info["distance_matrix"] = test_case.distance_matrix.tolist()
+            test_cases_info[name] = base_info
         
         return format_response({
             "test_cases": test_cases_info,
@@ -187,25 +196,27 @@ async def get_test_cases_endpoint():
         return format_response({"error": str(e)}, success=False)
 
 @app.get("/test-cases/{case_name}")
-async def get_specific_test_case(case_name: str):
+async def get_specific_test_case(case_name: str, include_matrix: bool = Query(default=False, description="Include full distance matrix in response")):
     """Get a specific test case by name"""
     try:
         if case_name not in app_state["test_cases"]:
             raise HTTPException(status_code=404, detail=f"Test case '{case_name}' not found")
         
         test_case = app_state["test_cases"][case_name]
-        qubits_needed = estimate_qubits_needed(test_case.num_locations, test_case.num_vehicles)
+        qubits_needed = _sd().estimate_qubits_needed(test_case.num_locations, test_case.num_vehicles)
         
-        return format_response({
+        data = {
             "name": test_case.name,
             "locations": test_case.locations,
             "num_vehicles": test_case.num_vehicles,
             "num_locations": test_case.num_locations,
             "depot_index": test_case.depot_index,
-            "distance_matrix": test_case.distance_matrix.tolist(),
             "qubits_needed": qubits_needed,
-            "quantum_feasible": is_quantum_feasible(test_case.num_locations)
-        })
+            "quantum_feasible": _sd().is_quantum_feasible(test_case.num_locations)
+        }
+        if include_matrix:
+            data["distance_matrix"] = test_case.distance_matrix.tolist()
+        return format_response(data)
     
     except HTTPException:
         raise
@@ -216,9 +227,12 @@ async def get_specific_test_case(case_name: str):
 async def get_available_algorithms():
     """Get all available algorithms and optimizers"""
     try:
+        # Lazy imports to avoid heavy modules at startup
+        classical_mod = importlib.import_module('classical_solver')
+        optimizers_mod = importlib.import_module('optimizers')
         return format_response({
-            "quantum_optimizers": get_available_optimizers(),
-            "classical_algorithms": get_available_classical_algorithms(),
+            "quantum_optimizers": optimizers_mod.get_available_optimizers(),
+            "classical_algorithms": classical_mod.get_available_classical_algorithms(),
             "quantum_info": {
                 "max_qubits_simulation": 20,
                 "recommended_p_layers": [1, 2, 3],
@@ -257,22 +271,25 @@ async def solve_quantum_endpoint(request: SolverRequest):
         p_layers = request.additional_params.get("p_layers", 2)
         shots = request.additional_params.get("shots", 1024)
         
-        # Validate optimizer
-        if optimizer not in get_available_optimizers():
+        # Validate optimizer (lazy import)
+        optimizers_mod = importlib.import_module('optimizers')
+        if optimizer not in optimizers_mod.get_available_optimizers():
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown quantum optimizer: {optimizer}. Available: {get_available_optimizers()}"
+                detail=f"Unknown quantum optimizer: {optimizer}. Available: {optimizers_mod.get_available_optimizers()}"
             )
         
-        # Solve
-        result = solve_vrp_quantum(
-            distance_matrix=distance_matrix,
-            num_vehicles=request.problem.num_vehicles,
-            optimizer=optimizer,
-            p_layers=p_layers,
-            depot_index=request.problem.depot_index,
-            maxiter=max_iterations,
-            shots=shots
+        # Solve in threadpool to avoid blocking event loop
+        vrp_mod = importlib.import_module('vrp_solver')
+        result = await run_in_threadpool(
+            vrp_mod.solve_vrp_quantum,
+            distance_matrix,
+            request.problem.num_vehicles,
+            optimizer,
+            p_layers,
+            request.problem.depot_index,
+            max_iterations,
+            shots
         )
         
         # Add problem info to result
@@ -307,10 +324,11 @@ async def solve_classical_endpoint(request: SolverRequest):
         max_iterations = request.max_iterations
         
         # Validate algorithm
-        if algorithm not in get_available_classical_algorithms():
+        classical_mod = importlib.import_module('classical_solver')
+        if algorithm not in classical_mod.get_available_classical_algorithms():
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown classical algorithm: {algorithm}. Available: {get_available_classical_algorithms()}"
+                detail=f"Unknown classical algorithm: {algorithm}. Available: {classical_mod.get_available_classical_algorithms()}"
             )
         
         # Prepare algorithm-specific parameters
@@ -332,12 +350,13 @@ async def solve_classical_endpoint(request: SolverRequest):
                 "max_time": request.additional_params.get("max_time", 30.0)
             })
         
-        # Solve
-        result = solve_vrp_classical(
-            distance_matrix=distance_matrix,
-            num_vehicles=request.problem.num_vehicles,
-            algorithm=algorithm,
-            depot_index=request.problem.depot_index,
+        # Solve in threadpool to avoid blocking event loop
+        result = await run_in_threadpool(
+            classical_mod.solve_vrp_classical,
+            distance_matrix,
+            request.problem.num_vehicles,
+            algorithm,
+            request.problem.depot_index,
             **algo_params
         )
         
@@ -380,12 +399,14 @@ async def compare_all_algorithms(request: ComparisonRequest):
             print(f"Warning: Problem requires {qubits_needed} qubits, skipping quantum algorithms")
         
         # Run comparison
-        result = compare_quantum_classical(
-            distance_matrix=distance_matrix,
-            num_vehicles=request.problem.num_vehicles,
-            quantum_optimizers=quantum_optimizers,
-            classical_algorithms=request.classical_algorithms,
-            depot_index=request.problem.depot_index
+        vrp_mod = importlib.import_module('vrp_solver')
+        result = await run_in_threadpool(
+            vrp_mod.compare_quantum_classical,
+            distance_matrix,
+            request.problem.num_vehicles,
+            quantum_optimizers,
+            request.classical_algorithms,
+            request.problem.depot_index
         )
         
         # Add metadata
@@ -437,7 +458,8 @@ async def compare_quantum_optimizers(
             )
         
         # Validate optimizers
-        available = get_available_optimizers()
+        optimizers_mod = importlib.import_module('optimizers')
+        available = optimizers_mod.get_available_optimizers()
         invalid_optimizers = [opt for opt in optimizers if opt not in available]
         if invalid_optimizers:
             raise HTTPException(
@@ -451,13 +473,15 @@ async def compare_quantum_optimizers(
         for optimizer in optimizers:
             print(f"Testing quantum optimizer: {optimizer}")
             try:
-                result = solve_vrp_quantum(
-                    distance_matrix=distance_matrix,
-                    num_vehicles=problem.num_vehicles,
-                    optimizer=optimizer,
-                    p_layers=p_layers,
-                    depot_index=problem.depot_index,
-                    maxiter=max_iterations
+                vrp_mod = importlib.import_module('vrp_solver')
+                result = await run_in_threadpool(
+                    vrp_mod.solve_vrp_quantum,
+                    distance_matrix,
+                    problem.num_vehicles,
+                    optimizer,
+                    p_layers,
+                    problem.depot_index,
+                    max_iterations
                 )
                 results[optimizer] = result
                 
@@ -527,7 +551,8 @@ async def validate_solution_endpoint(
 async def generate_random_problem(
     num_locations: int = Query(..., ge=4, le=8, description="Number of locations (4-8)"),
     num_vehicles: int = Query(..., ge=1, le=3, description="Number of vehicles (1-3)"),
-    seed: int = Query(default=42, description="Random seed for reproducibility")
+    seed: int = Query(default=42, description="Random seed for reproducibility"),
+    include_matrix: bool = Query(default=False, description="Include full distance matrix in response")
 ):
     """Generate a random VRP problem"""
     try:
@@ -542,18 +567,20 @@ async def generate_random_problem(
         # Generate random test case
         test_case = create_random_test_case(num_locations, num_vehicles, seed)
         
+        metadata = {
+            "name": test_case.name,
+            "qubits_needed": qubits_needed,
+            "quantum_feasible": True
+        }
+        if include_matrix:
+            metadata["distance_matrix"] = test_case.distance_matrix.tolist()
         return format_response({
             "problem": {
                 "locations": test_case.locations,
                 "num_vehicles": test_case.num_vehicles,
                 "depot_index": test_case.depot_index
             },
-            "metadata": {
-                "name": test_case.name,
-                "qubits_needed": qubits_needed,
-                "quantum_feasible": True,
-                "distance_matrix": test_case.distance_matrix.tolist()
-            }
+            "metadata": metadata
         })
     
     except HTTPException:
