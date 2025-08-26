@@ -25,26 +25,59 @@ const appReducer = (state, action) => {
   switch (action.type) {
     case 'SET_PROBLEM':
       return { ...state, currentProblem: { ...state.currentProblem, ...action.payload } }
+
     case 'SET_RESULTS':
-      return { ...state, currentResults: action.payload }
+      const data = action.payload || {}
+      console.log("✅ Dispatching results to context(AppContext.jsx):", action.payload)
+      
+      // Check if this is a comparison result (has quantum/classical structure)
+      if (data.quantum || data.classical) {
+        return {
+          ...state,
+          currentResults: data // Store the full comparison structure
+        }
+      }
+      
+      // Handle single algorithm result
+      return {
+        ...state,
+        currentResults: {
+          algorithm: data.algorithm || "Unknown",
+          cost: data.cost ?? 0,
+          executionTime: data.executionTime ?? 0,
+          iterations: data.iterations ?? 0,
+          pLayers: data.pLayers ?? null,
+          problemInfo: data.problemInfo ?? null,
+          qubits: data.qubits ?? null,
+          routes: data.routes || [],
+          shots: data.shots ?? null,
+          valid: data.valid ?? false,
+          validation: data.validation ?? null,
+        }
+      }
+
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload }
+
     case 'ADD_TO_HISTORY':
       return { 
         ...state, 
-        jobHistory: [action.payload, ...state.jobHistory.slice(0, 19)] // Keep last 20
+        jobHistory: [action.payload, ...state.jobHistory.slice(0, 19)]
       }
+
     case 'SET_SELECTED_ALGORITHMS':
       return { 
         ...state, 
         selectedAlgorithms: { ...state.selectedAlgorithms, ...action.payload }
       }
+
     case 'RESET_PROBLEM':
       return { 
         ...state, 
         currentProblem: initialState.currentProblem,
         currentResults: null
       }
+
     default:
       return state
   }

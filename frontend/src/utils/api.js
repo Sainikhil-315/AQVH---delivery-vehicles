@@ -16,7 +16,10 @@ api.interceptors.request.use((config) => {
 
 // Response interceptor for error handling
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log("✅ API Raw Response:", response.data)
+    return response
+  },
   (error) => {
     console.error('API Error:', error.response?.data || error.message)
     throw error

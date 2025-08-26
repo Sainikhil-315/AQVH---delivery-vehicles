@@ -2,6 +2,25 @@ import { useState, useCallback } from 'react'
 import { apiClient } from '../utils/api'
 import toast from 'react-hot-toast'
 
+const normalizeResults = (data) => {
+  if (!data) return null
+  return {
+    algorithm: data.algorithm || null,
+    cost: data.total_cost ?? data.cost ?? null,
+    executionTime: data.execution_time ?? data.executionTime ?? null,
+    routes: data.solution || [],
+    valid: data.is_valid ?? data.valid ?? false,
+
+    // optional fields
+    iterations: data.iterations || null,
+    qubits: data.num_qubits || null,
+    pLayers: data.p_layers || null,
+    shots: data.shots || null,
+    validation: data.validation || null,
+    problemInfo: data.problem_info || null
+  }
+}
+
 export const useAPI = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -18,8 +37,16 @@ export const useAPI = () => {
       }
       
       const response = await apiCall()
-      const data = response.data
-      
+      const rawData = response.data?.data || response.data
+      console.log("🚀 [useApi] Raw API response:", rawData)
+
+      // Decide whether to normalize or not
+      const data = (Array.isArray(rawData) || rawData?.quantum || rawData?.classical)
+        ? rawData   // keep structured for compareAll or array results
+        : normalizeResults(rawData)
+
+      console.log("✅ [useApi] Final processed data:", data)
+
       if (successMessage && showToast) {
         toast.dismiss()
         toast.success(successMessage)
