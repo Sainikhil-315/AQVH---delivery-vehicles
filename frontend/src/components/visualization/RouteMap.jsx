@@ -27,16 +27,21 @@ const RouteMap = ({
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return
 
-    // Initialize map
+    // Initialize map with proper z-index
     mapInstance.current = L.map(mapRef.current, {
       center: locations.length > 0 ? locations[0] : [40.7128, -74.0060],
       zoom: 10,
-      zoomControl: true
+      zoomControl: true,
+      // Ensure map stays below navbar
+      zoomControlOptions: {
+        position: 'topright'
+      }
     })
 
     // Add tile layer
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19
     }).addTo(mapInstance.current)
 
     // Add click handler for adding locations
@@ -72,10 +77,11 @@ const RouteMap = ({
       const marker = L.marker([location[0], location[1]], {
         icon: L.divIcon({
           html: `<div class="${isDepot ? 'depot-marker' : 'customer-marker'}"></div>`,
-          iconSize: [isDepot ? 16 : 12, isDepot ? 16 : 12],
-          iconAnchor: [isDepot ? 8 : 6, isDepot ? 8 : 6],
+          iconSize: [isDepot ? 20 : 16, isDepot ? 20 : 16],
+          iconAnchor: [isDepot ? 10 : 8, isDepot ? 10 : 8],
           className: 'custom-div-icon'
-        })
+        }),
+        zIndexOffset: isDepot ? 1000 : 500 // Ensure depot is always on top
       })
 
       marker.addTo(mapInstance.current)
@@ -103,7 +109,9 @@ const RouteMap = ({
           const polyline = L.polyline(routeCoords, {
             color: colors[routeIndex],
             weight: 3,
-            opacity: 0.8
+            opacity: 0.8,
+            // Ensure routes stay below markers
+            interactive: true
           })
           
           polyline.addTo(mapInstance.current)
@@ -139,10 +147,14 @@ const RouteMap = ({
   }
 
   return (
-    <div className={`relative ${className}`}>
-      <div ref={mapRef} className="w-full h-full min-h-[400px] rounded-lg" />
+    <div className={`map-container ${className}`}>
+      <div 
+        ref={mapRef} 
+        className="w-full h-full min-h-[400px] rounded-lg relative"
+        style={{ zIndex: 1 }} // Explicit z-index to stay below navbar
+      />
       {interactive && (
-        <div className="absolute top-4 right-4 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg text-xs">
+        <div className="absolute top-4 right-4 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg text-xs z-10 border border-gray-200 dark:border-gray-600">
           <p className="text-gray-600 dark:text-gray-400">
             Click on map to add locations
           </p>
