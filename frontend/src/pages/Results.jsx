@@ -1,122 +1,198 @@
-import React, { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowLeft, Download, RotateCcw } from 'lucide-react'
-import Button from '../components/ui/Button'
-import Tabs from '../components/ui/Tabs'
-import RouteMap from '../components/visualization/RouteMap'
-import ResultsPanel from '../components/results/ResultsPanel'
-import ComparisonView from '../components/visualization/ComparisonView'
-import Card from '../components/ui/Card'
-import { useApp } from '../context/AppContext'
-import { useNotifications } from '../hooks/useNotifications'
+import React, { useState } from "react";
+import { Link } from "react-router-dom";
+import { ArrowLeft, Download, RotateCcw } from "lucide-react";
+import Button from "../components/ui/Button";
+import Tabs from "../components/ui/Tabs";
+import RouteMap from "../components/visualization/RouteMap";
+import ResultsPanel from "../components/results/ResultsPanel";
+import ComparisonView from "../components/visualization/ComparisonView";
+import Card from "../components/ui/Card";
+import { useApp } from "../context/AppContext";
+import { useNotifications } from "../hooks/useNotifications";
 
 const Results = () => {
-  const { state, dispatch } = useApp()
-  const { currentProblem, currentResults, isLoading } = state
-  const notify = useNotifications()
-  const [activeTab, setActiveTab] = useState(0)
+  const { state, dispatch } = useApp();
+  const { currentProblem, currentResults, isLoading } = state;
+  console.log("✅ Results.jsx -> currentResults from context:", currentResults);
+  console.log("✅ Results.jsx -> currentProblem from context:", currentProblem);
+  const notify = useNotifications();
+  const [activeTab, setActiveTab] = useState(0);
+
+  // Helper function to get the best result for display
+  const getBestResult = () => {
+    if (!currentResults) return null;
+    
+    // If it's a comparison result
+    if (currentResults.quantum || currentResults.classical) {
+      // Get the best overall result based on comparison data
+      if (currentResults.comparison?.best_overall) {
+        const bestAlgo = currentResults.comparison.best_overall;
+        
+        // Check if it's a quantum result
+        if (currentResults.quantum && currentResults.quantum[bestAlgo]) {
+          const quantumResult = currentResults.quantum[bestAlgo];
+          return {
+            algorithm: quantumResult.algorithm,
+            cost: quantumResult.total_cost,
+            executionTime: quantumResult.execution_time,
+            routes: quantumResult.solution || [],
+            valid: quantumResult.is_valid,
+            qubits: quantumResult.num_qubits,
+            iterations: null, // quantum doesn't have iterations like classical
+            pLayers: quantumResult.p_layers,
+            shots: quantumResult.shots
+          };
+        }
+        
+        // Check if it's a classical result
+        if (currentResults.classical && currentResults.classical[bestAlgo]) {
+          const classicalResult = currentResults.classical[bestAlgo];
+          return {
+            algorithm: classicalResult.algorithm,
+            cost: classicalResult.total_cost,
+            executionTime: classicalResult.execution_time,
+            routes: classicalResult.solution || [],
+            valid: classicalResult.is_valid,
+            iterations: classicalResult.iterations
+          };
+        }
+      }
+      
+      // Fallback: get first available result
+      if (currentResults.quantum) {
+        const firstQuantum = Object.values(currentResults.quantum)[0];
+        if (firstQuantum) {
+          return {
+            algorithm: firstQuantum.algorithm,
+            cost: firstQuantum.total_cost,
+            executionTime: firstQuantum.execution_time,
+            routes: firstQuantum.solution || [],
+            valid: firstQuantum.is_valid,
+            qubits: firstQuantum.num_qubits,
+            pLayers: firstQuantum.p_layers,
+            shots: firstQuantum.shots
+          };
+        }
+      }
+      
+      if (currentResults.classical) {
+        const firstClassical = Object.values(currentResults.classical)[0];
+        if (firstClassical) {
+          return {
+            algorithm: firstClassical.algorithm,
+            cost: firstClassical.total_cost,
+            executionTime: firstClassical.execution_time,
+            routes: firstClassical.solution || [],
+            valid: firstClassical.is_valid,
+            iterations: firstClassical.iterations
+          };
+        }
+      }
+    }
+    
+    // If it's a single result, return as is
+    return currentResults;
+  };
+
+  const displayResult = getBestResult();
 
   // Handle export functionality
   const handleExport = async (format) => {
     if (!currentResults) {
-      notify.error('No results to export')
-      return
+      notify.error("No results to export");
+      return;
     }
 
     try {
-      let exportData
-      let filename
-      let mimeType
+      let exportData;
+      let filename;
+      let mimeType;
 
       switch (format) {
-        case 'json':
-          exportData = JSON.stringify({
-            problem: currentProblem,
-            results: currentResults,
-            timestamp: new Date().toISOString()
-          }, null, 2)
-          filename = `vrp-results-${Date.now()}.json`
-          mimeType = 'application/json'
-          break
-        
-        case 'csv':
+        case "json":
+          exportData = JSON.stringify(
+            {
+              problem: currentProblem,
+              results: currentResults,
+              timestamp: new Date().toISOString(),
+            },
+            null,
+            2
+          );
+          filename = `vrp-results-${Date.now()}.json`;
+          mimeType = "application/json";
+          break;
+
+        case "csv":
           // Convert routes to CSV format
-          const csvRows = [
-            ['Vehicle', 'Route', 'Total Distance', 'Stops']
-          ]
-          
-          if (currentResults.routes) {
-            currentResults.routes.forEach((route, index) => {
+          const csvRows = [["Vehicle", "Route", "Total Distance", "Stops"]];
+
+          if (displayResult?.routes) {
+            displayResult.routes.forEach((route, index) => {
               csvRows.push([
                 `Vehicle ${index + 1}`,
-                route.join(' -> '),
+                route.join(" -> "),
                 calculateRouteDistance(route).toFixed(2),
-                route.length
-              ])
-            })
+                route.length,
+              ]);
+            });
           }
-          
-          exportData = csvRows.map(row => row.join(',')).join('\n')
-          filename = `vrp-routes-${Date.now()}.csv`
-          mimeType = 'text/csv'
-          break
-        
+
+          exportData = csvRows.map((row) => row.join(",")).join("\n");
+          filename = `vrp-routes-${Date.now()}.csv`;
+          mimeType = "text/csv";
+          break;
+
         default:
-          throw new Error('Unsupported format')
+          throw new Error("Unsupported format");
       }
 
       // Create and download file
-      const blob = new Blob([exportData], { type: mimeType })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      
-      notify.success(`Results exported as ${format.toUpperCase()}`)
+      const blob = new Blob([exportData], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      notify.success(`Results exported as ${format.toUpperCase()}`);
     } catch (error) {
-      console.error('Export error:', error)
-      notify.error('Failed to export results')
+      console.error("Export error:", error);
+      notify.error("Failed to export results");
     }
-  }
+  };
 
   // Calculate route distance helper
   const calculateRouteDistance = (route) => {
-    if (!route || route.length < 2) return 0
-    
-    let distance = 0
+    if (!route || route.length < 2) return 0;
+
+    let distance = 0;
     for (let i = 0; i < route.length - 1; i++) {
-      const loc1 = currentProblem.locations[route[i]]
-      const loc2 = currentProblem.locations[route[i + 1]]
+      const loc1 = currentProblem.locations[route[i]];
+      const loc2 = currentProblem.locations[route[i + 1]];
       if (loc1 && loc2) {
         distance += Math.sqrt(
           Math.pow(loc1[0] - loc2[0], 2) + Math.pow(loc1[1] - loc2[1], 2)
-        )
+        );
       }
     }
-    return distance * 111 // Rough conversion to km
-  }
+    return distance * 111; // Rough conversion to km
+  };
 
   // Handle restart/reset
   const handleRestart = () => {
-    dispatch({ type: 'RESET_PROBLEM' })
-    notify.info('Problem reset. Ready for new optimization.')
-  }
+    dispatch({ type: "RESET_PROBLEM" });
+    notify.info("Problem reset. Ready for new optimization.");
+  };
 
-  // Prepare comparison data if we have multiple results
-  const comparisonData = currentResults ? {
-    quantum: Array.isArray(currentResults) 
-      ? currentResults.filter(r => r.algorithm && ['SPSA', 'COBYLA', 'ADAM', 'Powell'].includes(r.algorithm))
-      : (['SPSA', 'COBYLA', 'ADAM', 'Powell'].includes(currentResults.algorithm)) ? [currentResults] : [],
-    classical: Array.isArray(currentResults)
-      ? currentResults.filter(r => r.algorithm && ['nearest_neighbor', 'genetic_algorithm', 'simulated_annealing'].includes(r.algorithm))
-      : (['nearest_neighbor', 'genetic_algorithm', 'simulated_annealing'].includes(currentResults.algorithm)) ? [currentResults] : []
-  } : { quantum: [], classical: [] }
-
-  const hasMultipleResults = comparisonData.quantum.length + comparisonData.classical.length > 1
+  // Prepare comparison data
+  const hasMultipleResults = currentResults && 
+    ((currentResults.quantum && Object.keys(currentResults.quantum).length > 0) ||
+     (currentResults.classical && Object.keys(currentResults.classical).length > 0)) &&
+    (Object.keys(currentResults.quantum || {}).length + Object.keys(currentResults.classical || {}).length > 1);
 
   if (isLoading) {
     return (
@@ -135,7 +211,7 @@ const Results = () => {
           </Card>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -154,22 +230,18 @@ const Results = () => {
               Optimization Results
             </h1>
           </div>
-          
+
           <div className="flex items-center space-x-3">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleRestart}
-            >
+            <Button variant="outline" size="sm" onClick={handleRestart}>
               <RotateCcw className="h-4 w-4 mr-2" />
               New Problem
             </Button>
-            
+
             {currentResults && (
-              <Button 
-                variant="secondary" 
+              <Button
+                variant="secondary"
                 size="sm"
-                onClick={() => handleExport('json')}
+                onClick={() => handleExport("json")}
               >
                 <Download className="h-4 w-4 mr-2" />
                 Export Results
@@ -192,7 +264,7 @@ const Results = () => {
                 <div className="h-96 lg:h-[600px]">
                   <RouteMap
                     locations={currentProblem.locations}
-                    routes={currentResults?.routes || []}
+                    routes={displayResult?.routes || []}
                     depotIndex={currentProblem.depotIndex}
                     interactive={false}
                     className="h-full"
@@ -213,16 +285,28 @@ const Results = () => {
               <Card.Content>
                 <div className="space-y-3">
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Locations:</span>
-                    <span className="font-medium">{currentProblem.locations.length}</span>
+                    <span className="text-gray-600 dark:text-gray-400">
+                      Locations:
+                    </span>
+                    <span className="font-medium">
+                      {currentProblem.locations.length}
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Vehicles:</span>
-                    <span className="font-medium">{currentProblem.num_vehicles}</span>
+                    <span className="text-gray-600 dark:text-gray-400">
+                      Vehicles:
+                    </span>
+                    <span className="font-medium">
+                      {currentProblem.num_vehicles}
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Depot:</span>
-                    <span className="font-medium">Location {currentProblem.depot_index}</span>
+                    <span className="text-gray-600 dark:text-gray-400">
+                      Depot:
+                    </span>
+                    <span className="font-medium">
+                      Location {currentProblem.depot_index}
+                    </span>
                   </div>
                 </div>
               </Card.Content>
@@ -238,20 +322,20 @@ const Results = () => {
                 </Card.Header>
                 <Card.Content>
                   <div className="space-y-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="w-full"
-                      onClick={() => handleExport('json')}
+                      onClick={() => handleExport("json")}
                     >
                       <Download className="h-4 w-4 mr-2" />
                       Export JSON
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="w-full"
-                      onClick={() => handleExport('csv')}
+                      onClick={() => handleExport("csv")}
                     >
                       <Download className="h-4 w-4 mr-2" />
                       Export CSV
@@ -267,18 +351,18 @@ const Results = () => {
         <div className="mt-8">
           <Tabs defaultTab={0} onChange={setActiveTab}>
             <Tabs.Tab label="Results Details">
-              <ResultsPanel 
-                results={Array.isArray(currentResults) ? currentResults[0] : currentResults}
+              <ResultsPanel
+                results={displayResult}
                 onExport={handleExport}
               />
             </Tabs.Tab>
-            
+
             {hasMultipleResults && (
               <Tabs.Tab label="Algorithm Comparison">
-                <ComparisonView results={comparisonData} />
+                <ComparisonView results={currentResults} />
               </Tabs.Tab>
             )}
-            
+
             <Tabs.Tab label="Raw Data">
               <Card>
                 <Card.Header>
@@ -289,7 +373,7 @@ const Results = () => {
                     {JSON.stringify(
                       {
                         problem: currentProblem,
-                        results: currentResults
+                        results: currentResults,
                       },
                       null,
                       2
@@ -302,7 +386,7 @@ const Results = () => {
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default Results
+export default Results;
