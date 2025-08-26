@@ -1,0 +1,70 @@
+/* Loading animations */
+@keyframes quantum-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.quantum-pulse {
+  animation: quantum-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Gradient animations */
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.gradient-animate {
+  background-size: 200% 200%;
+  animation: gradient-shift 3s ease infinite;
+}
+
+/* Glassmorphism effect */
+.glass {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.dark .glass {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Route visualization */
+.route-animation {
+  stroke-dasharray: 5, 5;
+  animation: dash 1s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* Progress bar styles */
+.progress-quantum {
+  background: linear-gradient(90deg, #d946ef, #a855f7, #8b5cf6);
+  background-size: 200% 200%;
+  animation: gradient-shift 2s ease infinite;
+}
+
+.progress-classical {
+  background: linear-gradient(90deg, #3b82f6, #1d4ed8, #1e40af);
+  background-size: 200% 200%;
+  animation: gradient-shift 2s ease infinite;
+}
