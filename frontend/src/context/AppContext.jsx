@@ -78,6 +78,18 @@ const appReducer = (state, action) => {
         currentResults: null
       }
 
+    case 'SET_JOB_HISTORY':
+      return {
+        ...state,
+        jobHistory: action.payload
+      }
+
+    case 'CLEAR_HISTORY':
+      return {
+        ...state,
+        jobHistory: []
+      }
+
     default:
       return state
   }

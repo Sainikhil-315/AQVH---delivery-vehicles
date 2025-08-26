@@ -242,7 +242,7 @@ const ProblemSetup = () => {
               </p>
             </Card.Header>
             
-            <Card.Content className="p-0">
+            <Card.Content className="p-0 mb-4">
               <RouteMap
                 locations={locations}
                 depot_index={depot_index}

@@ -6,7 +6,25 @@ import PerformanceChart from './PerformanceChart'
 import { formatDistance, formatDuration, formatAlgorithmName } from '../../utils/formatters'
 
 const ComparisonView = ({ results = {} }) => {
-  const { quantum = [], classical = [] } = results
+  // Convert objects to arrays and normalize the data structure
+  const getResultsArray = (resultsObj, type) => {
+    if (!resultsObj || typeof resultsObj !== 'object') return []
+    
+    return Object.entries(resultsObj).map(([algorithmKey, result]) => ({
+      algorithm: result.algorithm || algorithmKey,
+      cost: result.total_cost ?? result.cost ?? 0,
+      executionTime: result.execution_time ?? result.executionTime ?? 0,
+      valid: result.is_valid ?? result.valid ?? false,
+      type: type,
+      qubits: result.num_qubits || null,
+      iterations: result.iterations || null,
+      pLayers: result.p_layers || null,
+      shots: result.shots || null
+    }))
+  }
+
+  const quantumArray = getResultsArray(results.quantum, 'quantum')
+  const classicalArray = getResultsArray(results.classical, 'classical')
 
   const getBestResult = (resultsArray) => {
     if (!resultsArray.length) return null
@@ -15,13 +33,10 @@ const ComparisonView = ({ results = {} }) => {
     )
   }
 
-  const bestQuantum = getBestResult(quantum)
-  const bestClassical = getBestResult(classical)
+  const bestQuantum = getBestResult(quantumArray)
+  const bestClassical = getBestResult(classicalArray)
   
-  const allResults = [...quantum, ...classical].map(result => ({
-    ...result,
-    type: quantum.includes(result) ? 'quantum' : 'classical'
-  }))
+  const allResults = [...quantumArray, ...classicalArray]
 
   const getWinner = () => {
     if (!bestQuantum || !bestClassical) return null
@@ -32,8 +47,55 @@ const ComparisonView = ({ results = {} }) => {
 
   const winner = getWinner()
 
+  // Use comparison data if available
+  const comparisonData = results.comparison || {}
+  const hasComparisonData = Object.keys(comparisonData).length > 0
+
   return (
     <div className="space-y-6">
+      {/* Comparison Summary from API if available */}
+      {hasComparisonData && (
+        <Card>
+          <Card.Header>
+            <h3 className="text-lg font-medium">Overall Comparison</h3>
+          </Card.Header>
+          <Card.Content className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {comparisonData.best_overall || 'N/A'}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Best Overall</p>
+              </div>
+              
+              <div className="text-center">
+                <p className="text-2xl font-bold text-quantum-600">
+                  {comparisonData.best_quantum || 'N/A'}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Best Quantum</p>
+              </div>
+              
+              <div className="text-center">
+                <p className="text-2xl font-bold text-blue-600">
+                  {comparisonData.best_classical || 'N/A'}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Best Classical</p>
+              </div>
+              
+              <div className="text-center">
+                <p className="text-2xl font-bold text-green-600">
+                  {comparisonData.quantum_advantage_percent !== undefined 
+                    ? `${(comparisonData.quantum_advantage_percent * 100).toFixed(2)}%`
+                    : 'N/A'
+                  }
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Quantum Advantage</p>
+              </div>
+            </div>
+          </Card.Content>
+        </Card>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Quantum Best */}
@@ -60,6 +122,11 @@ const ComparisonView = ({ results = {} }) => {
                     <Clock className="h-4 w-4" />
                     <span>Time: {formatDuration(bestQuantum.executionTime)}</span>
                   </div>
+                  {bestQuantum.qubits && (
+                    <div className="text-xs text-quantum-600">
+                      {bestQuantum.qubits} qubits used
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -69,7 +136,7 @@ const ComparisonView = ({ results = {} }) => {
         </Card>
 
         {/* Classical Best */}
-        <Card variant={winner === 'classical' ? 'quantum' : 'default'}>
+        <Card variant={winner === 'classical' ? 'primary' : 'default'}>
           <Card.Content className="p-6">
             <div className="flex items-center justify-between mb-4">
               <Cpu className="h-6 w-6 text-blue-600" />
@@ -92,6 +159,11 @@ const ComparisonView = ({ results = {} }) => {
                     <Clock className="h-4 w-4" />
                     <span>Time: {formatDuration(bestClassical.executionTime)}</span>
                   </div>
+                  {bestClassical.iterations && (
+                    <div className="text-xs text-blue-600">
+                      {bestClassical.iterations} iterations
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -180,6 +252,9 @@ const ComparisonView = ({ results = {} }) => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Status
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Details
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -209,6 +284,18 @@ const ComparisonView = ({ results = {} }) => {
                         >
                           {result.valid ? 'Valid' : 'Invalid'}
                         </Badge>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                        {result.type === 'quantum' ? (
+                          <>
+                            {result.qubits && `${result.qubits} qubits`}
+                            {result.shots && ` • ${result.shots} shots`}
+                          </>
+                        ) : (
+                          <>
+                            {result.iterations && `${result.iterations} iterations`}
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
