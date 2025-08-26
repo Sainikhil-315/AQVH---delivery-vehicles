@@ -69,3 +69,57 @@ body {
   background-color: rgba(31, 41, 55, 0.8);
   color: #f3f4f6;
 }
+
+/* Fix for Leaflet map overlapping navbar */
+.leaflet-container {
+  z-index: 1 !important; /* Lower than navbar */
+}
+
+.leaflet-control-zoom {
+  z-index: 1000 !important; /* Keep zoom controls accessible */
+}
+
+.leaflet-popup {
+  z-index: 1001 !important; /* Keep popups above map */
+}
+
+/* Ensure map container respects layout bounds */
+.map-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.5rem; /* 8px */
+}
+
+/* Fix for map tiles loading */
+.leaflet-tile-pane {
+  z-index: 1 !important;
+}
+
+/* Ensure marker popups work correctly */
+.leaflet-marker-icon {
+  z-index: 600 !important;
+}
+
+/* Custom marker styles */
+.depot-marker {
+  width: 16px;
+  height: 16px;
+  background-color: #dc2626; /* red-600 */
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.customer-marker {
+  width: 12px;
+  height: 12px;
+  background-color: #2563eb; /* blue-600 */
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.custom-div-icon {
+  background: none !important;
+  border: none !important;
+}
