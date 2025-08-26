@@ -144,7 +144,7 @@ const Results = () => {
           break;
 
         default:
-          throw new Error("Unsupported format");
+          throw new Error(`Unsupported format: ${format}`);
       }
 
       // Create and download file

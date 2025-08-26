@@ -66,14 +66,43 @@ const History = () => {
   const getBestCost = (results) => {
     if (!results) return Infinity
     
-    const allResults = [
-      ...(results.quantum || []),
-      ...(results.classical || [])
-    ]
+    // Handle different result structures
+    let allCosts = []
     
-    if (allResults.length === 0) return Infinity
+    // If it's a comparison result with quantum/classical objects
+    if (results.quantum || results.classical) {
+      // Extract costs from quantum results (object with algorithm names as keys)
+      if (results.quantum && typeof results.quantum === 'object') {
+        Object.values(results.quantum).forEach(result => {
+          if (result.total_cost !== undefined) {
+            allCosts.push(result.total_cost)
+          }
+        })
+      }
+      
+      // Extract costs from classical results (object with algorithm names as keys)
+      if (results.classical && typeof results.classical === 'object') {
+        Object.values(results.classical).forEach(result => {
+          if (result.total_cost !== undefined) {
+            allCosts.push(result.total_cost)
+          }
+        })
+      }
+      
+      // Check if there's a comparison object with best_cost
+      if (results.comparison?.best_cost !== undefined) {
+        allCosts.push(results.comparison.best_cost)
+      }
+    } else {
+      // Handle single result structure
+      if (results.cost !== undefined) {
+        allCosts.push(results.cost)
+      } else if (results.total_cost !== undefined) {
+        allCosts.push(results.total_cost)
+      }
+    }
     
-    return Math.min(...allResults.map(r => r.cost || Infinity))
+    return allCosts.length > 0 ? Math.min(...allCosts) : Infinity
   }
 
   const loadResult = (job) => {
@@ -83,8 +112,7 @@ const History = () => {
 
   const deleteJob = (jobId) => {
     const updatedHistory = jobHistory.filter(job => job.id !== jobId)
-    // In a real app, this would update the context state
-    console.log('Delete job:', jobId)
+    dispatch({ type: 'SET_JOB_HISTORY', payload: updatedHistory })
   }
 
   const exportJob = (job) => {
@@ -100,8 +128,7 @@ const History = () => {
 
   const clearHistory = () => {
     if (window.confirm('Are you sure you want to clear all history?')) {
-      // In a real app, this would update the context state
-      console.log('Clear history')
+      dispatch({ type: 'CLEAR_HISTORY' })
     }
   }
 
