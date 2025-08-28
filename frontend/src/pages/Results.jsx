@@ -22,79 +22,113 @@ const Results = () => {
   const getBestResult = () => {
     if (!currentResults) return null;
     
+    console.log("🔍 [getBestResult] Processing currentResults:", currentResults);
+    
     // If it's a comparison result
     if (currentResults.quantum || currentResults.classical) {
+      console.log("📊 [getBestResult] Comparison result detected");
+      
       // Get the best overall result based on comparison data
       if (currentResults.comparison?.best_overall) {
         const bestAlgo = currentResults.comparison.best_overall;
+        console.log("🏆 [getBestResult] Best algorithm:", bestAlgo);
         
         // Check if it's a quantum result
         if (currentResults.quantum && currentResults.quantum[bestAlgo]) {
           const quantumResult = currentResults.quantum[bestAlgo];
+          console.log("⚛️ [getBestResult] Using quantum result:", quantumResult);
           return {
             algorithm: quantumResult.algorithm,
             cost: quantumResult.total_cost,
             executionTime: quantumResult.execution_time,
             routes: quantumResult.solution || [],
+            geometries: quantumResult.geometries || null,
             valid: quantumResult.is_valid,
             qubits: quantumResult.num_qubits,
-            iterations: null, // quantum doesn't have iterations like classical
+            iterations: null,
             pLayers: quantumResult.p_layers,
-            shots: quantumResult.shots
+            shots: quantumResult.shots,
+            routing_info: quantumResult.routing_info || null
           };
         }
         
         // Check if it's a classical result
         if (currentResults.classical && currentResults.classical[bestAlgo]) {
           const classicalResult = currentResults.classical[bestAlgo];
+          console.log("🏛️ [getBestResult] Using classical result:", classicalResult);
           return {
             algorithm: classicalResult.algorithm,
             cost: classicalResult.total_cost,
             executionTime: classicalResult.execution_time,
             routes: classicalResult.solution || [],
+            geometries: classicalResult.geometries || null,
             valid: classicalResult.is_valid,
-            iterations: classicalResult.iterations
+            iterations: classicalResult.iterations,
+            routing_info: classicalResult.routing_info || null
           };
         }
       }
       
-      // Fallback: get first available result
-      if (currentResults.quantum) {
-        const firstQuantum = Object.values(currentResults.quantum)[0];
-        if (firstQuantum) {
-          return {
-            algorithm: firstQuantum.algorithm,
-            cost: firstQuantum.total_cost,
-            executionTime: firstQuantum.execution_time,
-            routes: firstQuantum.solution || [],
-            valid: firstQuantum.is_valid,
-            qubits: firstQuantum.num_qubits,
-            pLayers: firstQuantum.p_layers,
-            shots: firstQuantum.shots
-          };
-        }
-      }
+      // Fallback: get first available successful result
+      console.log("🔄 [getBestResult] No best_overall, looking for first successful result");
       
+      // Check classical results first
       if (currentResults.classical) {
-        const firstClassical = Object.values(currentResults.classical)[0];
-        if (firstClassical) {
-          return {
-            algorithm: firstClassical.algorithm,
-            cost: firstClassical.total_cost,
-            executionTime: firstClassical.execution_time,
-            routes: firstClassical.solution || [],
-            valid: firstClassical.is_valid,
-            iterations: firstClassical.iterations
-          };
+        for (const [algoName, result] of Object.entries(currentResults.classical)) {
+          console.log(`🔍 [getBestResult] Checking classical ${algoName}:`, result);
+          if (result && !result.error && result.solution) {
+            console.log(`✅ [getBestResult] Using first successful classical result: ${algoName}`);
+            return {
+              algorithm: result.algorithm || algoName,
+              cost: result.total_cost,
+              executionTime: result.execution_time,
+              routes: result.solution || [],
+              geometries: result.geometries || null,
+              valid: result.is_valid,
+              iterations: result.iterations,
+              routing_info: result.routing_info || null
+            };
+          }
         }
       }
+      
+      // Check quantum results
+      if (currentResults.quantum) {
+        for (const [algoName, result] of Object.entries(currentResults.quantum)) {
+          console.log(`🔍 [getBestResult] Checking quantum ${algoName}:`, result);
+          if (result && !result.error && result.solution) {
+            console.log(`✅ [getBestResult] Using first successful quantum result: ${algoName}`);
+            return {
+              algorithm: result.algorithm || algoName,
+              cost: result.total_cost,
+              executionTime: result.execution_time,
+              routes: result.solution || [],
+              geometries: result.geometries || null,
+              valid: result.is_valid,
+              qubits: result.num_qubits,
+              pLayers: result.p_layers,
+              shots: result.shots,
+              routing_info: result.routing_info || null
+            };
+          }
+        }
+      }
+      
+      console.log("❌ [getBestResult] No successful results found");
+      return null;
     }
     
     // If it's a single result, return as is
-    return currentResults;
+    console.log("📄 [getBestResult] Single result detected:", currentResults);
+    return {
+      ...currentResults,
+      routes: currentResults.routes || currentResults.solution || [],
+      geometries: currentResults.geometries || null
+    };
   };
 
   const displayResult = getBestResult();
+  console.log("🎯 [Results] Final displayResult:", displayResult);
 
   // Handle export functionality
   const handleExport = async (format) => {
@@ -250,6 +284,19 @@ const Results = () => {
           </div>
         </div>
 
+        {/* Debug Info - Remove this in production */}
+        {displayResult && (
+          <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900 rounded-lg text-sm">
+            <strong>Debug Info:</strong>
+            <br />
+            Algorithm: {displayResult.algorithm}
+            <br />
+            Routes: {JSON.stringify(displayResult.routes)}
+            <br />
+            Has Geometries: {displayResult.geometries ? "Yes" : "No"}
+          </div>
+        )}
+
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Map Visualization */}
@@ -265,7 +312,7 @@ const Results = () => {
                   <RouteMap
                     locations={currentProblem.locations}
                     routes={displayResult?.routes || []}
-                    depotIndex={currentProblem.depotIndex}
+                    depot_index={currentProblem.depot_index}
                     interactive={false}
                     className="h-full"
                   />
@@ -308,6 +355,34 @@ const Results = () => {
                       Location {currentProblem.depot_index}
                     </span>
                   </div>
+                  {displayResult && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">
+                          Algorithm:
+                        </span>
+                        <span className="font-medium">
+                          {displayResult.algorithm}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">
+                          Total Cost:
+                        </span>
+                        <span className="font-medium">
+                          {displayResult.cost?.toFixed(4) || "N/A"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">
+                          Routes Found:
+                        </span>
+                        <span className="font-medium">
+                          {displayResult.routes?.length || 0}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </Card.Content>
             </Card>

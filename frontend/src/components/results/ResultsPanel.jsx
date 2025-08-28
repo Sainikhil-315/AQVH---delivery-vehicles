@@ -1,18 +1,20 @@
-import React from "react";
-import { CheckCircle, AlertCircle, Clock, TrendingUp } from "lucide-react";
+import React, { useContext } from "react";
+import { CheckCircle, AlertCircle, Clock, TrendingUp, MapPin, Zap, Map } from "lucide-react";
 import Card from "../ui/Card";
 import Badge from "../ui/Badge";
 import RouteDetails from "./RouteDetails";
 import Statistics from "./Statistics";
 import ExportOptions from "./ExportOptions";
+import RoutingMetrics from "./RoutingMetrics";
 import {
   formatDistance,
   formatDuration,
   formatAlgorithmName,
 } from "../../utils/formatters";
+import { RoutingContext } from "../../context/RoutingContext";
 
 const ResultsPanel = ({ results, onExport }) => {
-  console.log("Results in ResultsPanel.jsx", results);
+  const { routingState } = useContext(RoutingContext);  
   if (!results) {
     return (
       <Card>
@@ -29,12 +31,15 @@ const ResultsPanel = ({ results, onExport }) => {
     );
   }
 
-  // const { algorithm, cost, executionTime, routes, valid } = results;
-  const { algorithm, cost, executionTime, routes, valid, qubits, iterations } = results;
+  const { algorithm, cost, executionTime, routes, valid, qubits, iterations, routing_info } = results;
+  
+  // Determine if this is a routing-enhanced result
+  const hasRouting = routing_info && routing_info.routing_mode !== 'euclidean';
+  const isQuantumResult = routing_info?.algorithm === 'quantum' || qubits;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Algorithm and Routing Info */}
       <Card>
         <Card.Content className="p-6">
           <div className="flex items-start justify-between">
@@ -46,18 +51,56 @@ const ResultsPanel = ({ results, onExport }) => {
                 <Badge variant={valid ? "success" : "danger"}>
                   {valid ? "Valid Solution" : "Invalid Solution"}
                 </Badge>
+                {isQuantumResult && (
+                  <Badge variant="quantum">
+                    Quantum
+                  </Badge>
+                )}
+                {hasRouting && (
+                  <Badge variant="info">
+                    Road Routing
+                  </Badge>
+                )}
               </div>
 
+              {/* Routing Information Banner */}
+              {hasRouting && (
+                <div className="flex items-center space-x-4 p-3 bg-blue-50 dark:bg-blue-950/50 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <MapPin className="h-5 w-5 text-blue-600" />
+                  <div className="flex items-center space-x-6 text-sm">
+                    <div>
+                      <span className="text-gray-600 dark:text-gray-400">Routing Mode:</span>
+                      <span className="ml-2 font-medium text-blue-700 dark:text-blue-300">
+                        {routing_info.routing_mode.toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600 dark:text-gray-400">Service:</span>
+                      <span className="ml-2 font-medium text-blue-700 dark:text-blue-300">
+                        {routing_info.routing_service}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600 dark:text-gray-400">Profile:</span>
+                      <span className="ml-2 font-medium text-blue-700 dark:text-blue-300">
+                        {routing_info.routing_profile || 'driving'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Key Metrics Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
                     <TrendingUp className="h-4 w-4 text-primary-600" />
                     <span className="text-sm text-gray-500 dark:text-gray-400">
-                      Total Cost
+                      Total {hasRouting ? 'Distance' : 'Cost'}
                     </span>
                   </div>
                   <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                    {formatDistance(cost)}
+                    {hasRouting ? `${cost.toFixed(2)} km` : formatDistance(cost)}
                   </p>
                 </div>
 
@@ -75,9 +118,12 @@ const ResultsPanel = ({ results, onExport }) => {
 
                 {qubits && (
                   <div className="space-y-1">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">
-                      Qubits Used
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <Zap className="h-4 w-4 text-quantum-600" />
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        Qubits Used
+                      </span>
+                    </div>
                     <p className="text-lg font-semibold text-quantum-600">
                       {qubits}
                     </p>
@@ -91,6 +137,20 @@ const ResultsPanel = ({ results, onExport }) => {
                     </span>
                     <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                       {iterations}
+                    </p>
+                  </div>
+                )}
+
+                {hasRouting && routing_info.total_api_calls && (
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <Map className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        API Calls
+                      </span>
+                    </div>
+                    <p className="text-lg font-semibold text-blue-600">
+                      {routing_info.total_api_calls}
                     </p>
                   </div>
                 )}
@@ -108,14 +168,29 @@ const ResultsPanel = ({ results, onExport }) => {
         </Card.Content>
       </Card>
 
+      {/* Routing Metrics - Show only if routing was used */}
+      {hasRouting && <RoutingMetrics routingInfo={routing_info} />}
+
       {/* Route Details */}
-      {routes && routes.length > 0 && <RouteDetails routes={routes} />}
+      {routes && routes.length > 0 && (
+        <RouteDetails 
+          routes={routes} 
+          routingInfo={hasRouting ? routing_info : null}
+        />
+      )}
 
       {/* Statistics */}
-      <Statistics results={results} />
+      <Statistics 
+        results={results} 
+        routingEnabled={hasRouting}
+      />
 
       {/* Export Options */}
-      <ExportOptions results={results} onExport={onExport} />
+      <ExportOptions 
+        results={results} 
+        onExport={onExport}
+        includeRouting={hasRouting}
+      />
     </div>
   );
 };

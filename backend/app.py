@@ -12,6 +12,7 @@ import numpy as np
 import time
 import traceback
 from contextlib import asynccontextmanager
+from distance.road_calc import create_osrm_calculator
 
 # Local imports
 from sample_data import (
@@ -51,6 +52,17 @@ class ComparisonRequest(BaseModel):
     quantum_optimizers: List[str] = Field(default=["SPSA", "COBYLA"], description="Quantum optimizers to test")
     classical_algorithms: List[str] = Field(default=["nearest_neighbor", "genetic_algorithm"], description="Classical algorithms to test")
     max_iterations: int = Field(50, ge=10, le=200, description="Maximum iterations per algorithm")
+
+# Request schemas
+class RouteRequest(BaseModel):
+    service: str = "osrm"
+    profile: str = "driving"
+    coordinates: List[Tuple[float, float]]  # [[lat, lon], [lat, lon]]
+
+class MatrixRequest(BaseModel):
+    service: str = "osrm"
+    profile: str = "driving"
+    locations: List[Tuple[float, float]]
 
 # Global variables for caching
 app_state = {
@@ -604,6 +616,43 @@ async def get_system_stats():
     except Exception as e:
         return format_response({"error": str(e)}, success=False)
 
+@app.get("/routing/services")
+async def get_routing_services():
+    return {
+        "osrm": {
+            "name": "OSRM",
+            "description": "Open Source Routing Machine",
+            "modes": ["road_osrm"],
+            "profiles": ["driving", "walking", "cycling"]
+        },
+        "openroute": {
+            "name": "OpenRouteService",
+            "description": "OpenRouteService API",
+            "modes": ["road_openroute"],
+            "profiles": ["driving", "walking", "cycling"]
+        }
+    }
+
+# POST /routing/route
+@app.post("/routing/route")
+async def get_route(req: RouteRequest):
+    if len(req.coordinates) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 coordinates")
+    calculator = await create_osrm_calculator(profile=req.profile)
+    start, end = req.coordinates[0], req.coordinates[1]
+    result = await calculator.calculate_distance(start, end)
+    await calculator.cleanup()
+    return {"route": result}
+
+# POST /routing/matrix
+@app.post("/routing/matrix")
+async def get_matrix(req: MatrixRequest):
+    if len(req.locations) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 locations")
+    calculator = await create_osrm_calculator(profile=req.profile)
+    matrix = await calculator.calculate_distance_matrix(req.locations)
+    await calculator.cleanup()
+    return {"matrix": matrix}
 # Custom error handlers
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):

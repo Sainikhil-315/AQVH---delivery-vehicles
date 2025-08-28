@@ -10,14 +10,15 @@ const normalizeResults = (data) => {
     executionTime: data.execution_time ?? data.executionTime ?? null,
     routes: data.solution || [],
     valid: data.is_valid ?? data.valid ?? false,
-
+    geometries: data.geometries || data.geometry || null,
     // optional fields
     iterations: data.iterations || null,
     qubits: data.num_qubits || null,
     pLayers: data.p_layers || null,
     shots: data.shots || null,
     validation: data.validation || null,
-    problemInfo: data.problem_info || null
+    problemInfo: data.problem_info || null,
+    routing_info: data.routing_info || null
   }
 }
 
@@ -38,14 +39,12 @@ export const useAPI = () => {
       
       const response = await apiCall()
       const rawData = response.data?.data || response.data
-      console.log("🚀 [useApi] Raw API response:", rawData)
 
       // Decide whether to normalize or not
       const data = (Array.isArray(rawData) || rawData?.quantum || rawData?.classical)
         ? rawData   // keep structured for compareAll or array results
         : normalizeResults(rawData)
 
-      console.log("✅ [useApi] Final processed data:", data)
 
       if (successMessage && showToast) {
         toast.dismiss()
