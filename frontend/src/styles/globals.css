@@ -123,3 +123,215 @@ body {
   background: none !important;
   border: none !important;
 }
+.depot-marker {
+  @apply bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold;
+}
+
+.customer-marker {
+  @apply bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold;
+}
+
+/* Add these styles to your global CSS or RouteMap component styles */
+
+/* Custom marker styles */
+.depot-marker {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pulse-depot 2s infinite;
+}
+
+.customer-marker {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.customer-marker:hover {
+  transform: scale(1.1);
+}
+
+.marker-content {
+  color: white;
+  font-weight: bold;
+  font-size: 10px;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Depot pulse animation */
+@keyframes pulse-depot {
+  0% {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+/* Route line styles */
+.leaflet-interactive.road-route {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+  transition: opacity 0.3s ease;
+}
+
+.leaflet-interactive.road-route:hover {
+  opacity: 1 !important;
+  stroke-width: 6;
+}
+
+.leaflet-interactive.euclidean-route {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 8 8;
+  animation: dash-flow 20s linear infinite;
+}
+
+/* Animated dash flow for euclidean routes */
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+.leaflet-interactive.road-routing-comparison {
+  pointer-events: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Map container enhancements */
+.map-container {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Status indicators */
+.routing-status-indicator {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.dark .routing-status-indicator {
+  background: rgba(31, 41, 55, 0.9);
+  border: 1px solid rgba(75, 85, 99, 0.2);
+}
+
+/* Legend enhancements */
+.route-legend {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.dark .route-legend {
+  background: rgba(31, 41, 55, 0.95);
+  border: 1px solid rgba(75, 85, 99, 0.2);
+}
+
+/* Route legend scrollbar */
+.route-legend::-webkit-scrollbar {
+  width: 4px;
+}
+
+.route-legend::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+}
+
+.route-legend::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 2px;
+}
+
+.route-legend::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* Error message styling */
+.route-error-message {
+  backdrop-filter: blur(10px);
+  animation: fade-in 0.5s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* Interactive help styling */
+.interactive-help {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.2s ease;
+}
+
+.interactive-help:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.dark .interactive-help {
+  background: rgba(31, 41, 55, 0.9);
+  border: 1px solid rgba(75, 85, 99, 0.2);
+}
+
+.dark .interactive-help:hover {
+  background: rgba(31, 41, 55, 0.95);
+}
+
+/* Custom popup styles */
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.leaflet-popup-content {
+  margin: 12px 16px;
+  font-family: inherit;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .route-legend {
+    max-width: calc(100vw - 2rem);
+    font-size: 10px;
+  }
+  
+  .interactive-help {
+    right: 8px;
+    top: 8px;
+    font-size: 10px;
+    padding: 8px;
+  }
+  
+  .routing-status-indicator {
+    left: 8px;
+    top: 8px;
+    font-size: 10px;
+    padding: 8px;
+  }
+}

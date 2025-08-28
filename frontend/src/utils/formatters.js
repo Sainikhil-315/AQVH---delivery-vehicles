@@ -8,9 +8,9 @@ export const formatDistance = (distance) => {
   if (distance < 0.1) {
     return `${(distance * 1000).toFixed(0)}m`
   } else if (distance < 10) {
-    return `${distance.toFixed(2)} km`
+    return `${distance.toFixed(2)}`
   } else {
-    return `${distance.toFixed(1)} km`
+    return `${distance.toFixed(1)}`
   }
 }
 

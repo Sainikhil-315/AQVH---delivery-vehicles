@@ -18,8 +18,8 @@ const Statistics = ({ results }) => {
 
   const stats = [
     {
-      label: 'Total Distance',
-      value: `${cost?.toFixed(2) || 'N/A'} km`,
+      label: 'Total Cost',
+      value: `${cost?.toFixed(2) || 'N/A'}`,
       icon: Target,
       color: 'text-blue-600'
     },
