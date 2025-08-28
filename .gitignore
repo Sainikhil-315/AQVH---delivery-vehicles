@@ -1,4 +1,6 @@
 /venv
 .env
 /backend/__pycache__
+/backend/routing/__pycache__
+/backend/distance/__pycache__
 /frontend/node_modules
